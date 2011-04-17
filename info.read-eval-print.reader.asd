@@ -3,15 +3,16 @@
 (asdf:defsystem :info.read-eval-print.reader
   :serial t
   :components ((:file "package")
-               (:file "rss")
+               (:file "feed")
                (:file "front"))
   :depends-on (:hunchentoot
                :clsql
                :cl-who
                :ironclad
                :quek
-               :drakma
                :flexi-stream-jp
+               :drakma
                :cxml
+               :cxml-stp
                :xpath))
 

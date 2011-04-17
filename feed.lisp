@@ -8,14 +8,14 @@
   (pushnew x drakma:*text-content-types* :test #'equal))
 
 
-(defclass rss-channel ()
+(defclass feed ()
   ((title :initarg :title)
    (link :initarg :link)
    (description :initarg :description)
    (creator :initarg :creator)
    (items :initform () :initarg :items)))
 
-(defclass rss-item ()
+(defclass feed-entry ()
   ((title :initarg :title)
    (link :initarg :link)
    (content :initarg :content)
@@ -39,14 +39,14 @@
   (xpath:with-namespaces (("dc" "http://purl.org/dc/elements/1.1/")
                           ("content" "http://purl.org/rss/1.0/modules/content/"))
     (let* ((doc (cxml:parse text (stp:make-builder)))
-           (rss-channel (make-instance 'rss-channel
+           (feed (make-instance 'feed
                                        :title (%xv "rss/channel/title" doc)
                                        :link (%xv "rss/channel/link" doc)
                                        :description (%xv "rss/channel/description" doc)
                                        :creator (%xv "rss/channel/dc:creator" doc))))
-      (with-slots (items) rss-channel
+      (with-slots (items) feed
         (xpath:do-node-set (node (xpath:evaluate "//item" doc))
-          (push (make-instance 'rss-item
+          (push (make-instance 'feed-entry
                                :title (%xv "title" node)
                                :link (%xv "link" node)
                                :content (%xv "description" node)
@@ -55,7 +55,7 @@
                                :category (%xv "category" node))
                 items))
         (setf items (nreverse items)))
-      rss-channel)))
+      feed)))
 
 
 
@@ -79,14 +79,14 @@
                                       (string/= (%xv "feed/title" doc) ""))))
                        (collect-first))))
       (xpath:with-namespaces ((nil namespace))
-        (let ((rss-channel (make-instance 'rss-channel
+        (let ((feed (make-instance 'feed
                                           :title (%xv "feed/title" doc)
                                           :link (%xv "feed/link[@rel=\"alternate\"]/@href" doc)
                                           :description (%xv "feed/tagline" doc)
                                           :creator (%xv "feed/author/name" doc))))
-          (with-slots (items) rss-channel
+          (with-slots (items) feed
             (xpath:do-node-set (node (xpath:evaluate "//entry" doc))
-              (push (make-instance 'rss-item
+              (push (make-instance 'feed-entry
                                    :title (%xv "title" node)
                                    :link (%xv "link/@href" node)
                                    :content (%xv "content" node)
@@ -95,4 +95,4 @@
                                    :category (%xv "category/@term" node))
                     items))
             (setf items (nreverse items)))
-          rss-channel)))))
+          feed)))))
