@@ -16,13 +16,20 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 #|
 シェルから次のコマンドを実行してデータベースを作成してください。
-echo 'create database hunchentoot_blank default character set utf8;' | mysql -u root
+echo 'create database reader default character set utf8;' | mysql -u root
 |#
 
 (clsql-sys:file-enable-sql-reader-syntax)
 
-(defparameter *connection-spec* '("localhost" "hunchentoot_blank" "root" "")
+(defparameter *connection-spec* '("localhost" "reader" "root" "")
   "MySQL の接続情報。(DBサーバ DB名 ユーザ パスワード)")
+
+(deftype text ()
+  'string)
+
+(defmethod clsql-sys:database-get-type-specifier ((type (eql 'text)) args database db-type)
+           (declare (ignore args database db-type))
+           "TEXT")
 
 (defmacro with-db (&body body)
   (alexandria:with-gensyms (res handler-done)
