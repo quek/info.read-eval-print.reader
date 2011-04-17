@@ -18,7 +18,7 @@
 (defclass rss-item ()
   ((title :initarg :title)
    (link :initarg :link)
-   (description :initarg :description)
+   (content :initarg :content)
    (creator :initarg :creator)
    (pub-date :initarg :pub-date)
    (category :initarg :category)))
@@ -26,27 +26,30 @@
 (defun %xv (path context)
   (xpath:string-value (xpath:evaluate path context)))
 
+(defun read-url (url)
+  (delete #\Return (drakma:http-request url)))
+
 (defun fetch-rss (url)
-  (let ((response (drakma:http-request url)))
+  (let ((response (read-url url)))
     (parse-rss response)))
 
 ;;(info.read-eval-print.reader::fetch-rss "http://cadr.g.hatena.ne.jp/g000001/rss2")
 
 (defun parse-rss (text)
-  (xpath:with-namespaces (("dc" "http://purl.org/dc/elements/1.1/"))
-    (let* ((doc (cxml:parse text (cxml-xmls:make-xmls-builder)))
-           (xpath:*navigator* (cxml-xmls:make-xpath-navigator))
+  (xpath:with-namespaces (("dc" "http://purl.org/dc/elements/1.1/")
+                          ("content" "http://purl.org/rss/1.0/modules/content/"))
+    (let* ((doc (cxml:parse text (stp:make-builder)))
            (rss-channel (make-instance 'rss-channel
-                                       :title (%xv "//channel/title" doc)
-                                       :link (%xv "//channel/link" doc)
-                                       :description (%xv "//channel/description" doc)
-                                       :creator (%xv "//channel/dc:creator" doc))))
+                                       :title (%xv "rss/channel/title" doc)
+                                       :link (%xv "rss/channel/link" doc)
+                                       :description (%xv "rss/channel/description" doc)
+                                       :creator (%xv "rss/channel/dc:creator" doc))))
       (with-slots (items) rss-channel
         (xpath:do-node-set (node (xpath:evaluate "//item" doc))
           (push (make-instance 'rss-item
                                :title (%xv "title" node)
                                :link (%xv "link" node)
-                               :description (%xv "description" node)
+                               :content (%xv "description" node)
                                :creator (%xv "dc:creator" node)
                                :pub-date (%xv "pubDate" node)
                                :category (%xv "category" node))
@@ -55,3 +58,41 @@
       rss-channel)))
 
 
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; atom
+
+(defun fetch-atom (url)
+  (let ((response (read-url url)))
+    (parse-atom response)))
+
+;;(fetch-atom "http://blog.livedoor.jp/chiblits/atom.xml")
+;;(fetch-atom "http://feeds.feedburner.com/blogspot/rztf")
+
+(defun parse-atom (text)
+  (let ((doc (cxml:parse text (stp:make-builder))))
+    (let ((namespace (progs ()
+                       (scan '("http://www.w3.org/2005/Atom" "http://purl.org/atom/ns#"))
+                       (choose-if (lambda (namespace)
+                                    (xpath:with-namespaces ((nil namespace))
+                                      (string/= (%xv "feed/title" doc) ""))))
+                       (collect-first))))
+      (xpath:with-namespaces ((nil namespace))
+        (let ((rss-channel (make-instance 'rss-channel
+                                          :title (%xv "feed/title" doc)
+                                          :link (%xv "feed/link[@rel=\"alternate\"]/@href" doc)
+                                          :description (%xv "feed/tagline" doc)
+                                          :creator (%xv "feed/author/name" doc))))
+          (with-slots (items) rss-channel
+            (xpath:do-node-set (node (xpath:evaluate "//entry" doc))
+              (push (make-instance 'rss-item
+                                   :title (%xv "title" node)
+                                   :link (%xv "link/@href" node)
+                                   :content (%xv "content" node)
+                                   :creator (%xv "author/name" node)
+                                   :pub-date (%xv "issued|published" node)
+                                   :category (%xv "category/@term" node))
+                    items))
+            (setf items (nreverse items)))
+          rss-channel)))))
