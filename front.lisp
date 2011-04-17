@@ -43,7 +43,7 @@ echo 'create database reader default character set utf8;' | mysql -u root
        (clsql-sys::start-sql-recording)
        (unwind-protect
             (let (,res (,handler-done t))
-              ;; (clsql:execute-command "SET NAMES 'utf8'")
+              (clsql:execute-command "SET NAMES 'utf8'")
               (clsql-sys:with-transaction (:database clsql:*default-database*)
                 ;; hunchentoot:redirect した場合の対応
                 (catch 'hunchentoot::handler-done

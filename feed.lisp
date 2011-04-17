@@ -8,20 +8,57 @@
   (pushnew x drakma:*text-content-types* :test #'equal))
 
 
-(defclass feed ()
-  ((title :initarg :title)
-   (link :initarg :link)
-   (description :initarg :description)
-   (creator :initarg :creator)
-   (items :initform () :initarg :items)))
+(clsql-sys:def-view-class feed ()
+  ((id :accessor id
+       :initarg :id
+       :db-kind :key
+       :db-constraints :auto-increment
+       :type integer)
+   (title :initarg :title :type string)
+   (link :initarg :link :type string)
+   (description :initarg :description :type text)
+   (creator :initarg :creator :type string)
+   (feed-entries
+    :accessor feed-entries
+    :db-kind :join
+    :db-info (:join-class feed-entry
+                          :home-key id
+                          :foreign-key feed-id
+                          :set t))))
 
-(defclass feed-entry ()
-  ((title :initarg :title)
-   (link :initarg :link)
-   (content :initarg :content)
-   (creator :initarg :creator)
-   (pub-date :initarg :pub-date)
-   (category :initarg :category)))
+(clsql-sys:def-view-class feed-entry ()
+  ((id :accessor id
+       :initarg :id
+       :db-kind :key
+       :db-constraints :auto-increment
+       :type integer)
+   (title :initarg :title :type string)
+   (link :initarg :link :type string)
+   (content :initarg :content :type text)
+   (creator :initarg :creator :type string)
+   (pub-date :initarg :pub-date :type string)
+   (category :initarg :category :type string)
+   (feed-id :initarg :feed-id :type integer)
+   (feed :accessor feed
+         :db-kind :join
+         :db-info (:join-class feed
+                          :home-key feed-id
+                          :foreign-key id
+                          :set nil))))
+
+;; テーブル作成
+(with-db
+  (iterate ((table (scan '(feed feed-entry))))
+    (unless (clsql-sys:table-exists-p table)
+      (clsql-sys:create-view-from-class table)
+      table)))
+
+(defun save-feed (feed)
+  (clsql-sys:update-records-from-instance feed)
+  (iterate ((feed-entry (scan (slot-value feed 'feed-entries))))
+    (setf (slot-value feed-entry 'feed-id) (id feed))
+    (clsql-sys:update-records-from-instance feed-entry)))
+
 
 (defun %xv (path context)
   (xpath:string-value (xpath:evaluate path context)))
@@ -44,7 +81,7 @@
                                        :link (%xv "rss/channel/link" doc)
                                        :description (%xv "rss/channel/description" doc)
                                        :creator (%xv "rss/channel/dc:creator" doc))))
-      (with-slots (items) feed
+      (with-slots (feed-entries) feed
         (xpath:do-node-set (node (xpath:evaluate "//item" doc))
           (push (make-instance 'feed-entry
                                :title (%xv "title" node)
@@ -53,8 +90,8 @@
                                :creator (%xv "dc:creator" node)
                                :pub-date (%xv "pubDate" node)
                                :category (%xv "category" node))
-                items))
-        (setf items (nreverse items)))
+                feed-entries))
+        (setf feed-entries (nreverse feed-entries)))
       feed)))
 
 
@@ -84,7 +121,7 @@
                                           :link (%xv "feed/link[@rel=\"alternate\"]/@href" doc)
                                           :description (%xv "feed/tagline" doc)
                                           :creator (%xv "feed/author/name" doc))))
-          (with-slots (items) feed
+          (with-slots (feed-entries) feed
             (xpath:do-node-set (node (xpath:evaluate "//entry" doc))
               (push (make-instance 'feed-entry
                                    :title (%xv "title" node)
@@ -93,6 +130,6 @@
                                    :creator (%xv "author/name" node)
                                    :pub-date (%xv "issued|published" node)
                                    :category (%xv "category/@term" node))
-                    items))
-            (setf items (nreverse items)))
+                    feed-entries))
+            (setf feed-entries (nreverse feed-entries)))
           feed)))))
