@@ -12,63 +12,25 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;; DB
+;;;; DB^H^H Rucksack
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-#|
-シェルから次のコマンドを実行してデータベースを作成してください。
-echo 'create database reader default character set utf8;' | mysql -u root
-|#
 
-(clsql-sys:file-enable-sql-reader-syntax)
+(unless rucksack:*rucksack*
+  (setf rucksack:*rucksack*
+        (rucksack:open-rucksack (merge-pathnames "rucksack/" *default-directory*))))
 
-(defparameter *connection-spec* '("localhost" "reader" "root" "")
-  "MySQL の接続情報。(DBサーバ DB名 ユーザ パスワード)")
+(rucksack:with-transaction ()
+  (defclass user ()
+    ((email :accessor email
+            :initarg :email
+            :unique t
+            :index :string-index)
+     (password :initarg :password
+               :initarg :plain-password
+               :accessor password))
+    (:index t)
+    (:metaclass rucksack:persistent-class)))
 
-(deftype text ()
-  'string)
-
-(defmethod clsql-sys:database-get-type-specifier ((type (eql 'text)) args database db-type)
-           (declare (ignore args database db-type))
-           "TEXT")
-
-(defmacro with-db (&body body)
-  (alexandria:with-gensyms (res handler-done)
-    `(clsql:with-database (clsql:*default-database*
-                           *connection-spec*
-                           :make-default t
-                           :pool t
-                           :encoding :utf-8
-                           :database-type :mysql)
-       ;; for debug
-       (clsql-sys::start-sql-recording)
-       (unwind-protect
-            (let (,res (,handler-done t))
-              ;; (clsql:execute-command "SET NAMES 'utf8'")
-              (clsql-sys:with-transaction (:database clsql:*default-database*)
-                ;; hunchentoot:redirect した場合の対応
-                (catch 'hunchentoot::handler-done
-                  (setf ,res (progn ,@body))
-                  (setf ,handler-done nil)))
-              (if ,handler-done
-                  (throw 'hunchentoot::handler-done nil)
-                  ,res))
-         ;; for debug
-         (clsql-sys::stop-sql-recording)))))
-;;(with-db (clsql-sys:query "select 'あ'"))
-
-(clsql-sys:def-view-class user ()
-  ((id :accessor id
-       :initarg :id
-       :db-kind :key
-       :db-constraints :auto-increment
-       :type integer)
-   (email :accessor email
-          :initarg :email
-          :db-constraints :unique
-          :type string)
-   (password :initarg :password
-             :initarg :plain-password
-             :type string)))
 
 (defmethod initialize-instance :after ((user user)
                                         &key plain-password
@@ -91,26 +53,35 @@ password に hash-password したものを設定する。"
 
 (defun authenticate (email password)
   (let ((password (hash-password password)))
-    (car
-     (clsql:select 'user
-                   :flatp t
-                   :where [and [= [email] email] [= [password] password]]))))
-;; (authenticate "user1@example.com" "password")
+    (rucksack:rucksack-map-slot rucksack:*rucksack*
+                                'user
+                                'email
+                                (lambda (user)
+                                  (describe user)
+                                  (when (string= password (password user))
+                                    (return-from authenticate user)))
+                                :equal email)
+    nil))
 
-;; テーブル作成
-(with-db
-  (unless (clsql-sys:table-exists-p 'user)
-    (clsql-sys:create-view-from-class 'user)
-    'user))
-#+テーブル削除
-(progn
-  (clsql-sys:drop-view-from-class 'user))
+(rucksack:with-transaction ()
+  (rucksack:cache-get-object 42 (rucksack:rucksack-cache rucksack:*rucksack*)))
+
+;; (rucksack:with-transaction () (authenticate "user1@example.com" "password"))
+
+#+(or)
+(let (users)
+  (rucksack:with-transaction ()
+    (rucksack:rucksack-map-class rucksack:*rucksack* 'user (lambda (x) (push x users))))
+  (rucksack:with-transaction ()
+    (iterate ((user (scan users)))
+      (rucksack:rucksack-delete-object rucksack:*rucksack* user))))
+
 
 #+テストデータ作成
-(with-db
-  (let ((user (make-instance 'user :email "user1@example.com"
-                             :plain-password "password")))
-    (clsql-sys:update-records-from-instance user)))
+(rucksack:with-transaction ()
+  (make-instance 'user :email "user1@example.com"
+                 :plain-password "password")
+  t)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -155,7 +126,7 @@ password に hash-password したものを設定する。"
   (when hunchentoot:*session*
     (hunchentoot:remove-session hunchentoot:*session*))
   (hunchentoot:start-session)
-  (setf (hunchentoot:session-value 'login-user-id) (id user))
+  (setf (hunchentoot:session-value 'login-user-id) (rucksack:object-id user))
   (hunchentoot:redirect redirect-url))
 
 (defun logout (redirect-url)
@@ -183,8 +154,7 @@ password に hash-password したものを設定する。"
 (defun select-login-user ()
   (let ((login-user-id (hunchentoot:session-value 'login-user-id)))
     (when login-user-id
-      (caar (clsql:select 'user
-                          :where [= [id] login-user-id])))))
+      (rucksack:cache-get-object login-user-id (rucksack:rucksack-cache rucksack:*rucksack*)))))
 
 (defmacro with-login-user (&body body)
   `(let ((*login-user* (select-login-user)))
@@ -203,14 +173,17 @@ hunchentoot:define-easy-handler と同じ。"
                                (getf (cdr description) :login-require-p))))
     (when (listp description)
       (remf (cdr description) :login-require-p))
-    `(hunchentoot:define-easy-handler ,description ,lambda-list
-       (with-db
-         (with-login-user
-           ,@(when login-required-p
-               `((unless *login-user*
-                   ;; ログインしていな場合の処理
-                   (hunchentoot:redirect "/"))))
-           ,@body)))))
+    (alexandria:with-gensyms (response-body error)
+      `(hunchentoot:define-easy-handler ,description ,lambda-list
+         (let (,response-body ,error)
+           (rucksack:with-transaction ()
+             (with-login-user
+               ,@(when login-required-p
+                   `((unless *login-user*
+                       ;; ログインしていな場合の処理
+                       (hunchentoot:redirect "/"))))
+               (setf (values ,response-body ,error) (progn ,@body))))
+           (values ,response-body ,error))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

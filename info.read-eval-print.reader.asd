@@ -6,7 +6,7 @@
                (:file "feed")
                (:file "front"))
   :depends-on (:hunchentoot
-               :clsql
+               :rucksack
                :cl-who
                :ironclad
                :quek
