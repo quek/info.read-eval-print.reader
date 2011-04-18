@@ -1,9 +1,5 @@
 (in-package :info.read-eval-print.reader)
 
-(defparameter *default-directory*
-  (pathname (directory-namestring #.(or *compile-file-truename*
-                                        *load-truename*)))
-  "このファイルがあるディレクトリ")
 
 (defparameter *js-path* (merge-pathnames "js/" *default-directory*)
   "JavaScript 用ディレクトリ")
@@ -14,10 +10,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; DB^H^H Rucksack
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(unless rucksack:*rucksack*
-  (setf rucksack:*rucksack*
-        (rucksack:open-rucksack (merge-pathnames "rucksack/" *default-directory*))))
 
 (rucksack:with-transaction ()
   (defclass user ()

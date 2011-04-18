@@ -3,6 +3,8 @@
 (asdf:defsystem :info.read-eval-print.reader
   :serial t
   :components ((:file "package")
+               (:file "config")
+               (:file "rucksack")
                (:file "feed")
                (:file "front"))
   :depends-on (:hunchentoot
