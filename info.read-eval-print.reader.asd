@@ -4,8 +4,9 @@
   :serial t
   :components ((:file "package")
                (:file "config")
-               (:file "rucksack")
                (:file "feed")
+               (:file "rucksack")
+               (:file "model")
                (:file "front"))
   :depends-on (:hunchentoot
                :rucksack
@@ -16,5 +17,6 @@
                :drakma
                :cxml
                :cxml-stp
-               :xpath))
+               :xpath
+               :hu.dwim.defclass-star))
 

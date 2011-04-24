@@ -8,75 +8,6 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;; DB^H^H Rucksack
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(rucksack:with-transaction ()
-  (defclass user ()
-    ((email :accessor email
-            :initarg :email
-            :unique t
-            :index :string-index)
-     (password :initarg :password
-               :initarg :plain-password
-               :accessor password))
-    (:index t)
-    (:metaclass rucksack:persistent-class)))
-
-
-(defmethod initialize-instance :after ((user user)
-                                        &key plain-password
-                                        &allow-other-keys)
-  "make-instance で :plain-password が指定されていた場合、
-password に hash-password したものを設定する。"
-  (when plain-password
-    (setf (password user) plain-password)))
-
-(defun hash-password (password)
-  "パスワードのハッシュ関数"
-  (ironclad:byte-array-to-hex-string
-   (ironclad:digest-sequence
-    :sha256
-    (ironclad:ascii-string-to-byte-array password))))
-
-(defmethod (setf password) (password (user user))
-  "パスワードのハッシュをセットする。"
-  (setf (slot-value user 'password) (hash-password password)))
-
-(defun authenticate (email password)
-  (let ((password (hash-password password)))
-    (rucksack:rucksack-map-slot rucksack:*rucksack*
-                                'user
-                                'email
-                                (lambda (user)
-                                  (describe user)
-                                  (when (string= password (password user))
-                                    (return-from authenticate user)))
-                                :equal email)
-    nil))
-
-(rucksack:with-transaction ()
-  (rucksack:cache-get-object 42 (rucksack:rucksack-cache rucksack:*rucksack*)))
-
-;; (rucksack:with-transaction () (authenticate "user1@example.com" "password"))
-
-#+(or)
-(let (users)
-  (rucksack:with-transaction ()
-    (rucksack:rucksack-map-class rucksack:*rucksack* 'user (lambda (x) (push x users))))
-  (rucksack:with-transaction ()
-    (iterate ((user (scan users)))
-      (rucksack:rucksack-delete-object rucksack:*rucksack* user))))
-
-
-#+テストデータ作成
-(rucksack:with-transaction ()
-  (make-instance 'user :email "user1@example.com"
-                 :plain-password "password")
-  t)
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; Web server
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -188,11 +119,12 @@ hunchentoot:define-easy-handler と同じ。"
     (htm
      (:div :class "ba" "ブランクプロジェクト")
      (if *login-user*
-         (htm (:div (str (email *login-user*))
+         (htm (:div (str (email-of *login-user*))
                     " でログインしています。")
               (:div (:a :href "logout" "ログアウト")))
          (htm (:div (:a :href "login" "ログイン"))))
-     (htm (:div (:a :href "/secret" "ログインが必要なページへのリンク"))))))
+     (htm (:div (:a :href "/secret" "ログインが必要なページへのリンク"))
+          (:div (:a :href "/reader" "リーダ"))))))
 
 ;;;; ログインページ
 (define-page (%login :uri "/login") (email messages)
@@ -231,3 +163,15 @@ hunchentoot:define-easy-handler と同じ。"
 (define-page (secrect :uri "/secret" :login-require-p t) ()
   (with-default-template (:title "秘密のページ")
    (htm (:p "このページはログインが必要なページです。"))))
+
+
+(define-page (reader :uri "/reader" :login-require-p t) ()
+  (with-default-template (:title "リーダ")
+    (htm (:div :id "feeds"
+               "購読リスト"
+               (:ul
+                (iterate (((category feeds) (scan-hash (subscriptions-of *login-user*))))
+                  (htm (:li (:div (esc category)
+                                  (:ul
+                                   (iterate ((feed (scan feeds)))
+                                     (htm (:li (esc (title-of feed)))))))))))))))
