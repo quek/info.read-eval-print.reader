@@ -43,6 +43,17 @@
 
 (defvar *login-user* nil "ログインユーザ")
 
+(defvar *messages* nil "入力エラーメッセージ")
+
+(defun messages ()
+  *messages*)
+
+(defun add-message (message)
+  (setf *messages* (nconc *messages* (list message))))
+
+(defun clear-message ()
+  (setf *messages* nil))
+
 (defun login (user redirect-url)
   "ログイン処理"
   (setf *login-user* user)
@@ -70,9 +81,15 @@
                  (:head
                   (:meta :charset ,charset)
                   (:title ,title)
-                  (:link :rel "stylesheet" :href"css/main.css" :media "all")
-                  (:script :src "http://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js"))
-                 (:body ,@body)))))
+                  (:link :rel "stylesheet" :href "/css/main.css" :media "all")
+                  (:script :src "http://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js")
+                  (:script :src "/js/common.js"))
+                 (:body
+                  (when (messages)
+                    (htm (:ul (loop for message in (messages)
+                                    do (htm (:li (esc message)))))))
+                  (:div
+                   ,@body))))))
 
 (defun select-login-user ()
   (let ((login-user-id (hunchentoot:session-value 'login-user-id)))
@@ -98,14 +115,17 @@ hunchentoot:define-easy-handler と同じ。"
       (remf (cdr description) :login-require-p))
     (alexandria:with-gensyms (response-body error)
       `(hunchentoot:define-easy-handler ,description ,lambda-list
-         (let (,response-body ,error)
-           (rucksack:with-transaction ()
-             (with-login-user
-               ,@(when login-required-p
-                   `((unless *login-user*
-                       ;; ログインしていな場合の処理
-                       (hunchentoot:redirect "/"))))
-               (setf (values ,response-body ,error) (progn ,@body))))
+         (let (,response-body ,error
+               (*messages* *messages*))
+           (if rucksack:*transaction*
+               #1=(with-login-user
+                    ,@(when login-required-p
+                        `((unless *login-user*
+                            ;; ログインしていな場合の処理
+                            (hunchentoot:redirect "/"))))
+                    (setf (values ,response-body ,error) (progn ,@body)))
+               (rucksack:with-transaction ()
+                 #1#))
            (values ,response-body ,error))))))
 
 
@@ -123,16 +143,12 @@ hunchentoot:define-easy-handler と同じ。"
                     " でログインしています。")
               (:div (:a :href "logout" "ログアウト")))
          (htm (:div (:a :href "login" "ログイン"))))
-     (htm (:div (:a :href "/secret" "ログインが必要なページへのリンク"))
-          (:div (:a :href "/reader" "リーダ"))))))
+     (htm (:div (:a :href "/reader" "リーダ"))))))
 
 ;;;; ログインページ
-(define-page (%login :uri "/login") (email messages)
+(define-page (%login :uri "/login") (email)
   (with-default-template (:title "ログイン")
     (htm
-     (when messages
-       (htm (:ul (loop for message in messages
-                       do (htm (:li (str message)))))))
      (:form :action "authenticate" :method :post
             (:div "email"
                   (:input :type :text :name "email" :value email))
@@ -143,35 +159,63 @@ hunchentoot:define-easy-handler と同じ。"
 ;;;; 認証
 (define-page (%authenticate :uri "/authenticate")
     ((email :init-form "") (password :init-form ""))
-  (let (messages)
-    (when (string= "" email)
-      (push "email を入力してください。" messages))
-    (when (string= "" password)
-      (push "パスワードを入力してください。" messages))
-    (if messages
-        (%login :email email :messages (reverse messages))
-        (let ((user (authenticate email password)))
-          (if user
-              (login user "/")
-              (%login :email email))))))
+  (when (string= "" email)
+    (add-message "email を入力してください。"))
+  (when (string= "" password)
+    (add-message "パスワードを入力してください。"))
+  (if (messages)
+      (%login :email email)
+      (let ((user (authenticate email password)))
+        (if user
+            (login user "/")
+            (%login :email email)))))
 
 ;;;; ログアウト
 (define-page (%logout :uri "/logout") ()
   (logout "/"))
 
-;;;; ログインが必要なページ
-(define-page (secrect :uri "/secret" :login-require-p t) ()
-  (with-default-template (:title "秘密のページ")
-   (htm (:p "このページはログインが必要なページです。"))))
-
-
-(define-page (reader :uri "/reader" :login-require-p t) ()
+;;;; リーダ
+(define-page (%reader :uri "/reader" :login-require-p t) ()
   (with-default-template (:title "リーダ")
-    (htm (:div :id "feeds"
-               "購読リスト"
-               (:ul
-                (iterate (((category feeds) (scan-hash (subscriptions-of *login-user*))))
-                  (htm (:li (:div (esc category)
-                                  (:ul
-                                   (iterate ((feed (scan feeds)))
-                                     (htm (:li (esc (title-of feed)))))))))))))))
+    (htm
+     (:div :id "feeds"
+           "購読リスト"
+           (:div (:a :href "/feeds/new" "登録"))
+           (:ul
+            (iterate (((category feeds) (scan-hash (subscriptions-of *login-user*))))
+              (htm (:li
+                    (:div :class "category" (esc category)
+                          (:ul
+                           (iterate ((feed (scan feeds)))
+                             (htm (:li :class "feed"
+                                       (:a :onclick (format nil "selectFeed('~a')"
+                                                            (cl-who:escape-string (url-of feed)))
+                                           (esc (title-of feed)))))))))))))
+     (:div :id "entries")
+     (:script :src "/reader.js"))))
+
+(define-page (%reader.js :uri "/reader.js" :login-require-p t) ()
+  (ps:ps
+    (defun select-feed (url)
+      (chain $
+             (get
+              (create url (+ "/feeds/" (encode-u-r-i-component url))
+                      callback (lambda (data)
+                                 (alert data))))))))
+
+(define-page (%feed-url :uri "/uuuuuuuuuuuuuuuuu"))
+
+
+(define-page (%new-feed :uri "/feeds/new" :login-require-p t) (url)
+  (with-default-template (:title "フィードの登録")
+    (htm (:form :action "/feeds/create" :method :post
+                (:div "url" (:input :type :text :name "url" :value url :class "input-url"))
+                (:div (:input :type :submit :value "登録"))))))
+
+(define-page (%create-feed :uri "/feeds/create" :login-require-p t :default-request-type :post)
+    ((url :init-form ""))
+  (if (string= "" url)
+      (%new-feed :url url)
+      (progn
+        (subscribe *login-user* (intern-feed url))
+        (hunchentoot:redirect "/reader"))))

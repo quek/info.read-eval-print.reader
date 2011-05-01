@@ -4,6 +4,7 @@
   (:use :cl :cl-who :quek)
   (:shadowing-import-from :cl-who #:str)
   (:import-from :hu.dwim.defclass-star #:defclass*)
+  (:import-from :parenscript #:chain #:create)
   (:export #:start
            #:stop))
 

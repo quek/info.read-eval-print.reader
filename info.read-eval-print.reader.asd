@@ -11,6 +11,7 @@
   :depends-on (:hunchentoot
                :rucksack
                :cl-who
+               :parenscript
                :ironclad
                :quek
                :flexi-stream-jp

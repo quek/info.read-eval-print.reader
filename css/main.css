@@ -1,3 +1,8 @@
-.ba {
-      color: green;
-}
+.ba { color: green; }
+
+
+.input-url { width: 40em; }
+
+.feed a { background: #f7f7f7; }
+
+.feed a:hover { background: #ffffee; }
